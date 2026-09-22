@@ -5,6 +5,7 @@ import multiprocessing as mp
 from pathlib import Path
 import queue
 import time
+from dataclasses import replace
 from .eye_features import FeatureFrame, extract_features
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,7 +54,7 @@ def _mark_loss(counter):
         counter.value += 1
 
 
-def camera_worker(index, frames, stop, loss):
+def camera_worker(index, frames, stop, loss, resolution=(640,480), preview_enabled=None):
     capture = detector = None
     try:
         import cv2
@@ -65,8 +66,8 @@ def camera_worker(index, frames, stop, loss):
         capture = cv2.VideoCapture(index, cv2.CAP_DSHOW)
         if not capture.isOpened():
             raise RuntimeError('摄像头无法打开：检查占用、编号及Windows权限')
-        capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        capture.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
         capture.set(cv2.CAP_PROP_FPS, 30)
         last_ms = -1
         while not stop.is_set():
@@ -84,6 +85,11 @@ def camera_worker(index, frames, stop, loss):
                 observation = FeatureFrame(captured_at, reason='需要画面中恰好一张脸', capture_size=size)
             else:
                 observation = extract_features(result.face_landmarks[0], captured_at, size)
+                if preview_enabled is not None and preview_enabled.is_set():
+                    from .eye_preview import eye_preview
+                    crop=eye_preview(rgb,result.face_landmarks[0])
+                    if crop is not None:
+                        observation=replace(observation,preview_ppm=crop)
             if not observation.usable():
                 _mark_loss(loss)  # monotonic counter cannot lose set/clear races
             if not stop.is_set():
@@ -104,22 +110,30 @@ class CameraService:
         self.frames = self.stop_event = self.loss = None
         self.stopping_at = None
         self.seen_losses = 0
+        self.preview_enabled = None
+
+    def set_preview(self, enabled):
+        if self.preview_enabled is not None:
+            self.preview_enabled.set() if enabled else self.preview_enabled.clear()
 
     @property
     def running(self):
         return self.process is not None
 
-    def start(self, index):
+    def start(self, index, resolution=(640,480)):
         if self.running:
             raise RuntimeError('旧采集进程尚未退出')
         if type(index) is not int or not 0 <= index <= 9:
             raise ValueError('摄像头编号应为0–9')
+        if resolution not in ((640,480),(1280,720)):
+            raise ValueError('不支持的请求分辨率')
         context = mp.get_context('spawn')
         self.frames = context.Queue(maxsize=1)
         self.stop_event, self.loss = context.Event(), context.Value('L', 0)
+        self.preview_enabled = context.Event()
         self.seen_losses = 0
         self.process = context.Process(target=camera_worker,
-            args=(index, self.frames, self.stop_event, self.loss), daemon=True)
+            args=(index, self.frames, self.stop_event, self.loss, resolution, self.preview_enabled), daemon=True)
         try:
             self.process.start()
         except Exception:
@@ -128,6 +142,7 @@ class CameraService:
             raise
 
     def stop(self):
+        self.set_preview(False)
         if self.running and self.stopping_at is None:
             self.stop_event.set()
             self.stopping_at = time.monotonic()

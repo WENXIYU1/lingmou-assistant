@@ -18,6 +18,13 @@ class FeatureFrame:
     valid: bool = False
     reason: str = ''
     capture_size: tuple = (0, 0)
+    left_eye: tuple = ()
+    right_eye: tuple = ()
+    left_lid: tuple = ()
+    right_lid: tuple = ()
+    average_lid: tuple = ()
+    eye_widths_px: tuple = ()  # left, right; measured only when both eyes are usable
+    preview_ppm: bytes = b''  # opt-in transient crop; never stored in profiles
 
     def usable(self):
         values = (self.timestamp, *self.features, *self.head)
@@ -66,11 +73,15 @@ def extract_features(landmarks, timestamp, size):
         fy = ((ix-pa[0])*-uy + (iy-pa[1])*ux) / width
         if not (.05 < fx < .95 and abs(fy) < .4):
             raise ValueError('虹膜位置异常')
-        return fx, fy
+        lid_height=(pd[0]-pt[0])*-uy+(pd[1]-pt[1])*ux
+        lid_y=((ix-pt[0])*-uy+(iy-pt[1])*ux)/lid_height
+        # Optional shadow feature: never clip an out-of-range value into validity.
+        lid=(fx,lid_y) if math.isfinite(lid_y) and 0 <= lid_y <= 1 else ()
+        return (fx, fy), lid, width
 
     try:
-        right = eye(33, 133, 159, 145, (469, 470, 471, 472))
-        left = eye(362, 263, 386, 374, (474, 475, 476, 477))
+        right, right_lid, right_width = eye(33, 133, 159, 145, (469, 470, 471, 472))
+        left, left_lid, left_width = eye(362, 263, 386, 374, (474, 475, 476, 477))
         p, q, nose = point(33), point(263), point(1)
         face_width = math.dist(p, q)
         if face_width < 50:
@@ -81,6 +92,8 @@ def extract_features(landmarks, timestamp, size):
         if abs(head[3]) > .35 or abs(head[4]) > .35:
             raise ValueError('请面向摄像头并减少侧转')
         return FeatureFrame(timestamp, ((left[0]+right[0])/2, (left[1]+right[1])/2),
-                            head, True, '双眼可用', size)
+                            head, True, '双眼可用', size, left, right, left_lid, right_lid,
+                            tuple((a+b)/2 for a,b in zip(left_lid,right_lid))
+                            if left_lid and right_lid else (), (left_width,right_width))
     except (ValueError, IndexError, TypeError, AttributeError) as exc:
         return invalid(str(exc))

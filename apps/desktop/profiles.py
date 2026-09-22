@@ -38,7 +38,8 @@ def validate_profile(data):
     if set(data['settings']) != set(settings.to_dict()):
         raise ValueError('设置不完整')
     raw = data['mapping']
-    if not isinstance(raw, dict) or set(raw) != {'center', 'scale', 'coefficients', 'head'}:
+    if not isinstance(raw, dict) or set(raw) != {'center', 'scale', 'coefficients', 'head',
+                                                'feature_mode', 'window_seconds'}:
         raise ValueError('映射结构无效')
     if (len(raw['center']) != 2 or len(raw['scale']) != 2 or len(raw['head']) != 5
             or len(raw['coefficients']) != 3 or any(len(row) != 2 for row in raw['coefficients'])):
@@ -48,6 +49,11 @@ def validate_profile(data):
         raise ValueError('映射含无效数值')
     if any(x < .002 for x in raw['scale']) or raw['head'][2] <= 0:
         raise ValueError('映射尺度无效')
+    if (raw['feature_mode'] not in ('average','average-x-left-y')
+            or type(raw['window_seconds']) not in (float,int)
+            or not math.isfinite(raw['window_seconds']) or not 0 <= raw['window_seconds'] <= .20
+            or (raw['feature_mode']=='average' and raw['window_seconds'] != 0)):
+        raise ValueError('映射特征处理无效')
     metrics = data['metrics']
     if not isinstance(metrics, dict) or set(metrics) != {
         'median_error', 'p90_error', 'max_error', 'sample_count', 'policy_version', 'passed'}:
@@ -63,7 +69,8 @@ def validate_profile(data):
             or type(data['trial_hits']) is not int or data['trial_hits'] < 3):
         raise ValueError('档案缺少有效验证或试用结果')
     return Mapping(tuple(raw['center']), tuple(raw['scale']),
-                   tuple(tuple(row) for row in raw['coefficients']), tuple(raw['head'])), settings
+                   tuple(tuple(row) for row in raw['coefficients']), tuple(raw['head']),
+                   raw['feature_mode'],float(raw['window_seconds'])), settings
 
 
 def load_profile(directory, name, environment):

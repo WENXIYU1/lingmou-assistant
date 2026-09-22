@@ -48,8 +48,11 @@ class WorkerTests(unittest.TestCase):
     def test_read_failure_releases_camera_and_detector(self):
         class Capture:
             released=False
+            settings=None
             def isOpened(self): return True
-            def set(self,*args): pass
+            def set(self,*args):
+                if self.settings is None: self.settings=[]
+                self.settings.append(args)
             def read(self): return False,None
             def release(self): self.released=True
         class Detector:
@@ -62,8 +65,10 @@ class WorkerTests(unittest.TestCase):
         with patch.dict('sys.modules',{'cv2':cv,'mediapipe':SimpleNamespace()}), \
              patch('apps.desktop.camera.verified_model',return_value=b'model'), \
              patch('apps.desktop.camera.create_detector',return_value=det):
-            camera_worker(0,frames,Flag(),Counter())
+            camera_worker(0,frames,Flag(),Counter(),(1280,720))
         self.assertTrue(cap.released)
+        self.assertIn((2,1280),cap.settings)
+        self.assertIn((3,720),cap.settings)
         self.assertTrue(det.closed)
         self.assertEqual(frames.get()[0],'error')
 

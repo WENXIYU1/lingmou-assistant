@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 
 from apps.desktop.calibration import (CalibrationSession, TRAIN_TARGETS, CHECK_TARGETS,
-    fit_mapping, validate_mapping)
+    fit_mapping, validate_mapping, validation_report)
 from apps.desktop.config import Settings
 from apps.desktop.eye_features import FeatureFrame, extract_features, head_matches
 from apps.desktop.interaction import MotionFilter
@@ -26,6 +26,40 @@ def groups(targets):
 
 
 class MappingTests(unittest.TestCase):
+    def test_diagnostics_bias_without_jitter_and_unchanged_schema(self):
+        mapping=fit_mapping(groups(TRAIN_TARGETS))
+        shifted=groups([(x+.3,y-.2) for x,y in CHECK_TARGETS])
+        details=[]
+        metrics=validate_mapping(mapping,shifted,Settings(),(800,600),details)
+        self.assertFalse(metrics['passed'])
+        self.assertEqual(len(details),3)
+        self.assertAlmostEqual(details[0]['bias_px'][0],240)
+        self.assertAlmostEqual(details[0]['bias_px'][1],-120)
+        self.assertLess(details[0]['jitter_p90'],1e-12)
+        self.assertNotIn('diagnostics',metrics)
+        report=validation_report(metrics,details)
+        self.assertIn('右240、上120',report)
+        self.assertIn('门槛 ≤18%',report)
+
+    def test_one_outlier_still_fails_maximum_gate(self):
+        mapping=fit_mapping(groups(TRAIN_TARGETS))
+        data=groups(CHECK_TARGETS)
+        data[1][0]=feature((1.,1.),0)
+        details=[]
+        metrics=validate_mapping(mapping,data,Settings(),(800,600),details)
+        self.assertFalse(metrics['passed'])
+        self.assertLess(metrics['median_error'],1e-12)
+        self.assertIn('验证点 2',validation_report(metrics,details))
+
+    def test_jitter_is_distinct_from_bias(self):
+        mapping=fit_mapping(groups(TRAIN_TARGETS))
+        data=[[feature((x+(.1 if i%2 else -.1),y),i*.06)
+               for i in range(26)] for x,y in CHECK_TARGETS]
+        details=[]
+        validate_mapping(mapping,data,Settings(),(800,600),details)
+        self.assertAlmostEqual(details[0]['bias_px'][0],0)
+        self.assertAlmostEqual(details[0]['jitter_p90'],.08)
+
     def test_affine_fit_and_independent_validation(self):
         mapping=fit_mapping(groups(TRAIN_TARGETS))
         metrics=validate_mapping(mapping,groups(CHECK_TARGETS),Settings(),(800,600))
@@ -75,6 +109,18 @@ class MappingTests(unittest.TestCase):
 
 
 class SessionTests(unittest.TestCase):
+    def test_countdown_progress_and_pause(self):
+        s=CalibrationSession(Settings(),(800,600))
+        s.begin_point(0)
+        self.assertIn('准备 0.5 秒',s.progress_text(.5))
+        s.feed(feature(s.target,.5))
+        self.assertEqual(s.buffer,[])
+        s.feed(feature(s.target,.75))
+        s.feed(feature(s.target,1.))
+        self.assertIn('1/18',s.progress_text(1.))
+        s.pause()
+        self.assertIn('已暂停',s.progress_text(2.))
+
     def fill_point(self,s,now):
         s.begin_point(now)
         target=s.target
@@ -89,12 +135,26 @@ class SessionTests(unittest.TestCase):
         now=0
         for _ in range(5):
             now=self.fill_point(s,now)
+        self.assertEqual(s.phase,'select')
+        self.assertIsNone(s.metrics)
+        for _ in range(3):
+            now=self.fill_point(s,now)
         self.assertEqual(s.phase,'verify')
         self.assertIsNone(s.metrics)
+        self.assertIn('不作为最终通过证据',s.selection_report)
         for _ in range(3):
             now=self.fill_point(s,now)
         self.assertEqual(s.phase,'trial')
         self.assertTrue(s.metrics['passed'])
+
+    def test_loaded_mapping_needs_only_fresh_final_check(self):
+        mapping=fit_mapping(groups(TRAIN_TARGETS))
+        s=CalibrationSession(Settings(),(800,600),mapping)
+        now=0
+        for _ in range(3):
+            now=self.fill_point(s,now)
+        self.assertEqual(s.phase,'trial')
+        self.assertEqual(s.mapping,mapping)
 
     def test_paused_does_not_resume_on_valid_frames(self):
         s=CalibrationSession(Settings(),(800,600))
