@@ -5,8 +5,9 @@ from .vision import Observation
 
 
 class MotionFilter:
-    def __init__(self, settings):
+    def __init__(self, settings, absolute=False):
         self.settings = settings
+        self.absolute = absolute
         self.reset()
 
     def reset(self):
@@ -16,8 +17,10 @@ class MotionFilter:
 
     def update(self, observation):
         if self.origin is None:
-            self.origin = (observation.x, observation.y)
+            self.origin = (.5, .5) if self.absolute else (observation.x, observation.y)
             self.last_time = observation.timestamp
+            if self.absolute:
+                self.position = (observation.x, observation.y)
             return self.position
         dt = observation.timestamp - self.last_time
         self.last_time = observation.timestamp
