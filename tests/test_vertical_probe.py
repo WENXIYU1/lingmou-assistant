@@ -5,6 +5,37 @@ from test_calibration import HEAD, feature
 
 
 class VerticalProbeTests(unittest.TestCase):
+    def test_prestart_inflight_frame_ignored_on_begin_and_retry(self):
+        from apps.desktop.direction_probe import DirectionProbe
+        for kind in (VerticalProbe, DirectionProbe):
+            probe=kind(HEAD)
+            for start in (10.,20.):
+                probe.begin(start)
+                self.assertFalse(probe.feed(feature(TARGETS[0],start-.125)))
+                self.assertEqual(probe.started,start)
+                self.assertIsNone(probe.last)
+                self.assertEqual(probe.buffer,[])
+                self.assertEqual(probe.error,'')
+                for i in range(45):
+                    if probe.feed(feature(TARGETS[0],start+i*.09)):
+                        break
+                self.assertIsNone(probe.started)
+            self.assertEqual(len(probe.groups),2)
+
+    def test_reverse_timestamp_not_hidden_as_prestart_frame(self):
+        probe=VerticalProbe(HEAD)
+        probe.begin(10.)
+        probe.feed(feature(TARGETS[0],10.1))
+        probe.feed(feature(TARGETS[0],9.9))
+        self.assertIsNone(probe.started)
+        self.assertIn('时间倒退',probe.error)
+
+    def test_prestart_invalid_frame_still_pauses(self):
+        probe=VerticalProbe(HEAD)
+        probe.begin(10.)
+        probe.feed(replace(feature(TARGETS[0],9.9),valid=False))
+        self.assertIsNone(probe.started)
+
     def test_causal_window_future_cannot_change_past(self):
         group=[(i*.04,(float(i>=10),None,None)) for i in range(20)]
         a,b,spans=paired_samples(group,0)

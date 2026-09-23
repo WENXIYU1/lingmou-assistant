@@ -54,13 +54,23 @@ def _mark_loss(counter):
         counter.value += 1
 
 
-def camera_worker(index, frames, stop, loss, resolution=(640,480), preview_enabled=None):
+def camera_worker(index, frames, stop, loss, resolution=(640,480), preview_enabled=None,
+                  backend='geometric', alignment_reset=None):
     capture = detector = None
     try:
         import cv2
         import mediapipe
         model = verified_model()  # failure before opening a device
         detector = create_detector(model)
+        pipeline = None
+        if backend == 'openvino':
+            from .gaze_pipeline import GazePipeline
+            pipeline = GazePipeline()
+        elif backend == 'mobilegaze':
+            from .mobile_gaze import MobileGazePipeline
+            pipeline = MobileGazePipeline()
+        elif backend != 'geometric':
+            raise ValueError('未知视觉算法')
         if stop.is_set():
             return
         capture = cv2.VideoCapture(index, cv2.CAP_DSHOW)
@@ -85,6 +95,16 @@ def camera_worker(index, frames, stop, loss, resolution=(640,480), preview_enabl
                 observation = FeatureFrame(captured_at, reason='需要画面中恰好一张脸', capture_size=size)
             else:
                 observation = extract_features(result.face_landmarks[0], captured_at, size)
+                if pipeline is not None and observation.usable():
+                    try:
+                        if alignment_reset is not None and alignment_reset.is_set():
+                            if hasattr(pipeline,'reset_alignment'):
+                                pipeline.reset_alignment()
+                            alignment_reset.clear()
+                        observation = pipeline.infer(frame, result.face_landmarks[0], observation)
+                    except ValueError as exc:
+                        observation = replace(observation, valid=False, features=(), head_valid=True,
+                                              reason='头部可用；视线暂不可用：'+str(exc))
                 if preview_enabled is not None and preview_enabled.is_set():
                     from .eye_preview import eye_preview
                     crop=eye_preview(rgb,result.face_landmarks[0])
@@ -105,16 +125,23 @@ def camera_worker(index, frames, stop, loss, resolution=(640,480), preview_enabl
 
 
 class CameraService:
-    def __init__(self):
+    def __init__(self, backend='geometric'):
+        if backend not in ('geometric', 'openvino', 'mobilegaze'):
+            raise ValueError('未知视觉算法')
+        self.backend = backend
         self.process = None
         self.frames = self.stop_event = self.loss = None
         self.stopping_at = None
         self.seen_losses = 0
-        self.preview_enabled = None
+        self.preview_enabled = self.alignment_reset = None
 
     def set_preview(self, enabled):
         if self.preview_enabled is not None:
             self.preview_enabled.set() if enabled else self.preview_enabled.clear()
+
+    def reset_alignment_reference(self):
+        if self.alignment_reset is not None:
+            self.alignment_reset.set()
 
     @property
     def running(self):
@@ -131,9 +158,11 @@ class CameraService:
         self.frames = context.Queue(maxsize=1)
         self.stop_event, self.loss = context.Event(), context.Value('L', 0)
         self.preview_enabled = context.Event()
+        self.alignment_reset = context.Event()
         self.seen_losses = 0
         self.process = context.Process(target=camera_worker,
-            args=(index, self.frames, self.stop_event, self.loss, resolution, self.preview_enabled), daemon=True)
+            args=(index, self.frames, self.stop_event, self.loss, resolution, self.preview_enabled,
+                  self.backend, self.alignment_reset), daemon=True)
         try:
             self.process.start()
         except Exception:

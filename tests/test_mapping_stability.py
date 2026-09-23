@@ -26,10 +26,13 @@ class StabilityTests(unittest.TestCase):
         values=[]
         for i,y in enumerate((0.,0.,1.,1.)):
             values.append(filt.update(replace(base,timestamp=i*.05,left_eye=(.4,y))))
-        self.assertEqual(values[0][1],0.)
+        self.assertIsNone(values[0])
+        self.assertIsNone(values[1])
         self.assertEqual(values[2][1],0.)  # no future samples can repair this past output
         after_gap=filt.update(replace(base,timestamp=1.,left_eye=(.4,1.)))
-        self.assertEqual(after_gap[1],1.)
+        self.assertIsNone(after_gap)
+        self.assertIsNone(filt.update(replace(base,timestamp=1.05,left_eye=(.4,1.))))
+        self.assertEqual(filt.update(replace(base,timestamp=1.10,left_eye=(.4,1.)))[1],1.)
 
     def test_noiseless_mapping_is_unchanged(self):
         data=groups(TRAIN_TARGETS)

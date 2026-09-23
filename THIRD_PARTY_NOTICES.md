@@ -1,5 +1,9 @@
 # 来源、依赖与开发披露
 
+2026-09-23新增MobileGaze研究对照：作者Yakhyokhuja Valikhujaev，来源https://github.com/yakhyo/gaze-estimation 。本地适配器参考其RGB归一化及90-bin角度解码接口，代码MIT许可全文保留于`docs/licenses/MobileGaze-MIT.txt`。ResNet18 ONNX预训练权重来自作者发布页，大小/SHA256见`models/manifest/mobile_gaze.json`，不是本项目训练。权重再分发尚未核清，不随Git或安装包分发；本轮仅本机实验。
+
+2026-09-23本地实验新增OpenVINO2026.4.0运行时和Open Model Zoo的 `gaze-estimation-adas-0002` / `head-pose-estimation-adas-0001` FP16权重。官方模型清单将许可指向[Apache-2.0](https://github.com/openvinotoolkit/open_model_zoo/blob/master/LICENSE)，资源地址、尺寸及官方SHA384记录在`models/manifest/openvino_gaze.json`。这些模型由Intel/OpenVINO提供，非本项目训练；当前仅本地开发使用，权重不上传Git。正式分发前需保留许可证、著作权声明并核对全部随包NOTICE。具体运行与实测边界见`docs/新算法实验使用与验收.md`。
+
 参考来源：https://github.com/lyk05212007/eyemouse 。本地保留下载的原始源码供静态审阅，不作为本次上传内容。原代码许可尚未确认，本仓库未附加开源许可证或宣称全部算法原创。
 
 本阶段依据参考代码中观察到的交互问题实现独立模块；未复制原始摄像头循环。共同使用的Python和CustomTkinter技术栈不等于原项目整体已迁移。后续复制或改造参考代码前必须确认授权并记录来源版本。

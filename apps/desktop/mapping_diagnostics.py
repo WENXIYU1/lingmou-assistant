@@ -115,12 +115,12 @@ class MappingDiagnostics:
 
     def report(self):
         lines=['定位诊断（仅本次会话，不保存、不上传）',
-               '候选只用五点训练；三点验证不参与拟合或自动选择。',
+               '候选只用五点训练；第一组三点仅选型，第二组全新三点才作最终验收。',
                '训练误差不代表独立精度；若据此选择候选，仍需新的独立验收。',
                '百分比为画布对角线比例；X/Y像素为横/纵绝对误差中位数。',
                '头部变化顺序：中心X、中心Y、尺度比例、倾斜弧度、侧转代理。',
                '这些是数值描述，不能单独证明误差原因。']
-        lines.append('当前映射v2：使用训练点内波动约束放大程度；旧v1仅作诊断对照。')
+        lines.append('候选映射v3：使用训练点内波动约束放大程度；原始未约束仿射仅作诊断对照。')
         if self.baseline is not None:
             lines.append('旧v1各训练点中位误差：'+', '.join(f'{r["median"]:.2%}' for r in self.baseline['training']))
             if 'validation' in self.baseline:

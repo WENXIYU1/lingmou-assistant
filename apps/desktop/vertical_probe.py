@@ -12,8 +12,10 @@ def paired_samples(group, channel):
     """Return raw/causal-filtered pairs at the same output timestamps."""
     raw, filtered, spans = [], [], []
     for i, (stamp, values) in enumerate(group):
+        if i < 2:
+            continue
         window = [(t, v[channel]) for t, v in group[:i+1] if stamp-t <= .20]
-        if len(window) < 3 or any(v is None for _, v in window):
+        if any(v is None for _, v in window):
             continue
         raw.append(values[channel])
         filtered.append(float(np.median([v for _, v in window])))
@@ -54,21 +56,27 @@ class VerticalProbe:
     def feed(self, frame):
         if self.started is None or self.done:
             return False
-        if (not frame.usable() or not head_matches(self.reference, frame.head)
-                or (self.last is not None and not 0 < frame.timestamp-self.last <= .25)):
+        if not frame.usable() or not head_matches(self.reference, frame.head):
             self.pause('跟踪中断或头部偏离；回到参考范围后明确继续')
+            return False
+        if self.last is not None and frame.timestamp <= self.last:
+            self.pause('采样时间倒退或重复，请明确重采')
+            return False
+        # Inference can finish after begin() for an image captured before it.
+        # Discard that image without changing the point timer or sample history.
+        if frame.timestamp < self.started:
+            return False
+        if self.last is not None and frame.timestamp-self.last > .25:
+            self.pause('采样间隔超过0.25秒，请明确重采')
             return False
         self.last = frame.timestamp
         elapsed = frame.timestamp-self.started
-        if elapsed < 0 or elapsed > 12:
-            self.pause('本点超时或时间异常，请明确重采')
+        if elapsed > 12:
+            self.pause('本点采样超时（超过12秒），请明确重采')
             return False
         if elapsed < 1:
             return False
-        values = []
-        for key, _ in CHANNELS:
-            pair = getattr(frame, key)
-            values.append(float(pair[1]) if len(pair) == 2 and all(math.isfinite(v) for v in pair) else None)
+        values = self.sample_values(frame)
         # Keep scalar features only, never FeatureFrame / image bytes.
         self.buffer.append((frame.timestamp, tuple(values)))
         self.buffer = self.buffer[-240:]
@@ -77,6 +85,13 @@ class VerticalProbe:
             self.pause('')
             return True
         return False
+
+    def sample_values(self, frame):
+        values = []
+        for key, _ in CHANNELS:
+            pair = getattr(frame, key)
+            values.append(float(pair[1]) if len(pair) == 2 and all(math.isfinite(v) for v in pair) else None)
+        return values
 
     def status(self):
         if self.done:
@@ -87,7 +102,7 @@ class VerticalProbe:
         lines = ['上下短测（仅本次会话；不保存、不上传）',
                  f'完成 {len(self.groups)}/4 点；{self.error}',
                  '顺序：上—中—下—中复测，水平位置固定。',
-                 '处理：仅过去0.20秒的中位数，至少3帧；每点独立预热。',
+                 '处理：每点先预热3个连续有效帧，再取过去0.20秒内样本的中位数。',
                  '原始/处理后使用相同时间点。窗口跨度不是实际眼动响应延迟；真人延迟未测。',
                  '只描述信号，不代表屏幕定位精度、通过门槛或自动选择算法。']
         if not self.done:

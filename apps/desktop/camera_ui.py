@@ -13,21 +13,27 @@ from .calibration import CalibrationSession, MappingFeatureFilter, validation_re
 from .config import Settings
 from .eye_features import FeatureFrame, head_matches
 from .head_reference import HeadReference, guidance
-from .interaction import MotionFilter
+from .interaction import MotionFilter, StableMotionFilter
 from .profiles import load_profile, save_profile, profile_path
 from .storage import default_path
 from .vision import Observation
 
 
 class CameraApp(ctk.CTk):
-    def __init__(self, service=None, profiles_directory=None):
+    def __init__(self, service=None, profiles_directory=None, experimental=False, mobilegaze=False):
         super().__init__()
-        self.title('灵动视眸 · 本地摄像头适配（系统控制锁定）')
+        self.mobilegaze=mobilegaze
+        experimental=experimental or mobilegaze
+        self.experimental = experimental
+        self.title('灵动视眸 · '+('新算法实验' if experimental else '本地摄像头适配')+'（系统控制锁定）')
         self.geometry('1160x800')
         self.minsize(1000, 720)
-        self.service = service or CameraService()
+        self.service = service or CameraService('mobilegaze' if mobilegaze else ('openvino' if experimental else 'geometric'))
+        if mobilegaze:
+            self.title('灵动视眸 · MobileGaze方向短测（系统控制锁定）')
         self.profiles_directory = Path(profiles_directory or default_path().parent / 'profiles')
-        self.settings = Settings()
+        self.stable_trial = experimental
+        self.settings = Settings(smoothing_seconds=.20 if experimental else .10)
         self.filter = self.new_filter()
         self.session = None
         self.probe = None
@@ -58,7 +64,7 @@ class CameraApp(ctk.CTk):
         self.name.trace_add('write', lambda *args: self.invalidate('已切换档案，请重新校准或加载本人档案'))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
-        ctk.CTkLabel(self, text='首次适配：让系统适应你', font=('Microsoft YaHei',24,'bold')).grid(
+        ctk.CTkLabel(self, text='MobileGaze：整脸方向短测' if mobilegaze else ('新算法实验：戴镜定位对照' if experimental else '首次适配：让系统适应你'), font=('Microsoft YaHei',24,'bold')).grid(
             row=0,column=0,sticky='w',padx=22,pady=(16,4))
         ctk.CTkLabel(self,textvariable=self.health,wraplength=750).grid(row=1,column=0,sticky='w',padx=22)
         self.canvas=tk.Canvas(self,bg='#122335',highlightthickness=0)
@@ -79,7 +85,7 @@ class CameraApp(ctk.CTk):
         ctk.CTkEntry(panel,textvariable=self.index).pack(fill='x',pady=3)
         ctk.CTkEntry(panel,textvariable=self.device_label).pack(fill='x',pady=3)
         self.glasses=tk.StringVar(value='戴日常眼镜')
-        self.resolution=tk.StringVar(value='640x480')
+        self.resolution=tk.StringVar(value='1280x720' if experimental else '640x480')
         ctk.CTkLabel(panel,text='戴镜状态（不记录度数）').pack(anchor='w')
         ctk.CTkOptionMenu(panel,variable=self.glasses,values=['戴日常眼镜','未戴眼镜'],
                           command=lambda value:self.invalidate('摘戴状态改变，请重新建立基准与验证')).pack(fill='x',pady=3)
@@ -100,7 +106,19 @@ class CameraApp(ctk.CTk):
                               ('确认保存个人档案',self.save),
                               ('查看定位诊断（暂停采样）',self.show_diagnostics),
                               ('采集质量审计（无需校准）',self.show_capture_audit)]:
+            if mobilegaze and command in (self.start_calibration,self.load,self.save,self.resume,self.show_diagnostics):
+                continue
+            if mobilegaze and command==self.start_probe:
+                label='开始头动补偿对照（无需校准）'
+            if mobilegaze and command==self.show_probe:
+                label='查看方向短测报告'
+            if experimental and not mobilegaze and command in (self.start_probe,self.show_probe,self.load,self.save):
+                continue
             ctk.CTkButton(panel,text=label,height=40,command=command).pack(fill='x',pady=4)
+        if experimental:
+            self.stable_choice=tk.BooleanVar(value=True)
+            ctk.CTkCheckBox(panel,text='稳定试用（抑制跳动，可能稍有延迟）',variable=self.stable_choice,
+                            command=self.change_trial_filter).pack(fill='x',pady=8)
         ctk.CTkLabel(panel,text='参数均为试验值；调整后必须重新验证').pack(pady=(10,3))
         self.entries={}
         for key,label in [('gain_x','横向增益'),('gain_y','纵向增益'),
@@ -127,7 +145,14 @@ class CameraApp(ctk.CTk):
         self.after(50,self.tick)
 
     def new_filter(self):
-        return MotionFilter(replace(self.settings,gain_x=1,gain_y=1),absolute=True)
+        kind=StableMotionFilter if self.experimental and self.stable_trial else MotionFilter
+        return kind(replace(self.settings,gain_x=1,gain_y=1),absolute=True)
+
+    def change_trial_filter(self):
+        self.stable_trial=bool(self.stable_choice.get())
+        self.pause()
+        self.trial_hits=0
+        self.message.set('试用稳定处理已'+('开启' if self.stable_trial else '关闭')+'；请明确恢复并重新试用3个目标。原始验证指标不变。')
 
     def environment(self):
         if self.latest is None:
@@ -137,7 +162,7 @@ class CameraApp(ctk.CTk):
                 'glasses':self.glasses.get(),
                 'screen':[self.winfo_screenwidth(),self.winfo_screenheight(),round(float(self.tk.call('tk','scaling')),4)],
                 'canvas':[self.canvas.winfo_rootx(),self.canvas.winfo_rooty(),self.canvas.winfo_width(),self.canvas.winfo_height()],
-                'model':'face-landmarker-float16-1'}
+                'model':'mobilegaze-resnet18-angle-v1' if self.mobilegaze else ('omz-gaze-head-fp16-roll-aligned-xy-v2' if self.experimental else 'face-landmarker-float16-1')}
 
     def invalidate(self,message):
         owner=self.name.get() if hasattr(self,'name') else None
@@ -169,13 +194,18 @@ class CameraApp(ctk.CTk):
     def fresh(self):
         return self.latest is not None and self.latest.usable() and 0 <= time.monotonic()-self.latest.timestamp <= .25
 
+    def fresh_head(self):
+        return self.latest is not None and self.latest.head_usable() and 0 <= time.monotonic()-self.latest.timestamp <= .25
+
     def confirm_head(self):
         reference=self.head_history.candidate(time.monotonic())
-        if not self.fresh() or reference is None:
+        if not self.fresh_head() or reference is None:
             self.message.set('请以舒适姿态保持约1.2秒，双眼可见后再确认；不必勉强端正')
             return
         self.invalidate('已记录舒适基准；请开始新的五点校准。重建基准会清除旧校准。')
         self.head_reference=reference
+        if self.mobilegaze and hasattr(self.service,'reset_alignment_reference'):
+            self.service.reset_alignment_reference()
         self.bound_environment,self.bound_name=self.environment(),self.name.get()
 
     def redraw_head(self):
@@ -190,7 +220,7 @@ class CameraApp(ctk.CTk):
             c.create_line(x-dx,y-dy,x+dx,y+dy,fill=color,width=2)
         if self.head_reference:
             outline(self.head_reference,'#ffdc86')
-        if self.fresh():
+        if self.fresh_head():
             outline(self.latest.head,'#74ddff')
             if self.head_reference:
                 text=guidance(self.head_reference,self.latest.head)
@@ -198,7 +228,9 @@ class CameraApp(ctk.CTk):
                 text=('姿态稳定，可确认舒适基准' if self.head_history.candidate(time.monotonic())
                       else '请自然坐好，等待稳定约1.2秒；不必完全不动')
         else:
-            text='等待清晰有效的双眼信号；不显示过期位置'
+            text='等待可用头部位置；不显示过期位置'
+        if self.fresh_head() and not self.fresh():
+            text+='\n头部可参考；视线暂不可用，校准仍需等待'
         self.head_hint.set(text+'\n黄：参考 / 蓝：当前（摄像头坐标，非镜像）')
 
     def start_camera(self):
@@ -227,10 +259,20 @@ class CameraApp(ctk.CTk):
         self.service.stop()
 
     def start_calibration(self):
+        if self.mobilegaze:
+            self.message.set('本入口仅方向短测，不进行屏幕校准或控制')
+            return
         try:
             profile_path(self.profiles_directory,self.name.get())
             if not self.fresh():
-                raise ValueError('请先开启摄像头，并等待双眼质量合格')
+                if not self.service.running:
+                    raise ValueError('摄像头未运行，请先开启摄像头')
+                if self.latest is None:
+                    raise ValueError('摄像头正在初始化，请等待首帧结果')
+                if not 0 <= time.monotonic()-self.latest.timestamp <= .25:
+                    raise ValueError('摄像头已开启，但结果已过期；请关闭预览后查看采集质量审计')
+                raise ValueError('摄像头已开启，暂不能校准：'+self.latest.reason)
+            self.close_preview()
             if self.head_reference is None:
                 raise ValueError('请先确认舒适头部基准，再开始校准')
             if self.bound_environment!=self.environment():
@@ -244,7 +286,7 @@ class CameraApp(ctk.CTk):
             self.bound_environment=self.environment()
             self.bound_name=self.name.get()
             self.session=CalibrationSession(self.settings,(self.canvas.winfo_width(),self.canvas.winfo_height()),
-                                            reference=reference)
+                                            reference=reference,experimental=self.experimental)
             self.session.begin_point(time.monotonic())
             self.message.set('校准1/5：注视圆点，保持头部稳定；短暂闭眼会重采本点稳定片段')
         except ValueError as exc:
@@ -286,21 +328,32 @@ class CameraApp(ctk.CTk):
         self.message.set('已主动暂停；不会因闭嘴或恢复跟踪而继续。可继续本点或明确恢复试用。')
 
     def start_probe(self):
+        if self.experimental and not self.mobilegaze:
+            self.message.set('新算法请直接完成五点校准及独立验证')
+            return
         reference=self.head_reference or self.head_history.candidate(time.monotonic())
         if not self.fresh() or reference is None or not head_matches(reference,self.latest.head):
-            self.message.set('先开启摄像头，以舒适姿态保持约1.2秒，再开始上下短测；无需五点校准')
+            self.message.set('先开启摄像头，以舒适姿态保持约1.2秒，再开始头动补偿对照；无需五点校准'
+                             if self.mobilegaze else
+                             '先开启摄像头，以舒适姿态保持约1.2秒，再开始上下短测；无需五点校准')
             return
-        self.invalidate('开始上下短测，旧校准失效；本测试不解锁控制')
+        self.invalidate('开始头动补偿对照；仅会话影子结果，不解锁控制'
+                        if self.mobilegaze else
+                        '开始上下短测，旧校准失效；本测试不解锁控制')
         self.head_reference=reference
         self.bound_environment,self.bound_name=self.environment(),self.name.get()
-        self.probe=VerticalProbe(reference)
+        if self.mobilegaze:
+            from .direction_probe import HeadCompProbe
+            self.probe=HeadCompProbe(reference)
+        else:
+            self.probe=VerticalProbe(reference)
         self.probe.begin(time.monotonic())
         self.message.set(self.probe.status())
 
     def show_probe(self):
         self.pause()
         window=ctk.CTkToplevel(self)
-        window.title('上下短测 · 仅会话内存')
+        window.title('头动补偿对照 · 仅会话内存' if self.mobilegaze else '上下短测 · 仅会话内存')
         window.geometry('900x650')
         box=ctk.CTkTextbox(window,wrap='word')
         box.pack(fill='both',expand=True,padx=12,pady=12)
@@ -334,7 +387,8 @@ class CameraApp(ctk.CTk):
             self.checked=False
             self.trial_hits=0
             if self.mapping and self.bound_environment==self.environment():
-                self.session=CalibrationSession(new,(self.canvas.winfo_width(),self.canvas.winfo_height()),self.mapping)
+                self.session=CalibrationSession(new,(self.canvas.winfo_width(),self.canvas.winfo_height()),self.mapping,
+                                                experimental=self.experimental)
                 self.message.set('参数已改变；请点击“继续 / 重采当前点”完成3点独立验证')
             else:
                 self.session=None
@@ -343,6 +397,9 @@ class CameraApp(ctk.CTk):
             self.message.set(f'参数未应用：{exc}')
 
     def load(self):
+        if self.experimental:
+            self.message.set('新算法实验仅保留本次会话，请重新校准')
+            return
         try:
             if not self.fresh():
                 raise ValueError('先开启摄像头并保持双眼可见')
@@ -434,6 +491,9 @@ class CameraApp(ctk.CTk):
         return window
 
     def save(self):
+        if self.experimental:
+            self.message.set('新算法实验档案暂不保存；结果可在定位诊断中查看')
+            return
         if (not self.checked or self.trial_hits<3 or not self.session or not self.session.metrics
                 or not self.mapping or self.name.get()!=self.bound_name):
             self.message.set('先完成独立验证及3个画布目标，再确认保存')
@@ -467,6 +527,8 @@ class CameraApp(ctk.CTk):
             if self.probe is not None and not self.probe.done:
                 self.probe.pause('时间顺序异常，请明确重采当前点')
             self.active=False
+            if self.mapping_features:
+                self.mapping_features.reset()
             self.position=None
             self.dwell_since=None
             if self.session:
@@ -475,17 +537,21 @@ class CameraApp(ctk.CTk):
         self.latest=frame
         if self.bound_environment and self.environment()!=self.bound_environment:
             self.invalidate('窗口、显示或摄像头尺寸已改变，旧映射不再有效，请重新校准')
+        if self.fresh_head():
+            self.head_history.feed(frame)
+        else:
+            self.head_history.clear()
         if not self.fresh():
             if self.probe is not None and not self.probe.done:
                 self.probe.pause('跟踪无效或过期，请明确继续 / 重采当前点')
-            self.head_history.clear()
             self.active=False
+            if self.mapping_features:
+                self.mapping_features.reset()
             self.position=None
             self.dwell_since=None
             if self.session:
                 self.session.feed(FeatureFrame(frame.timestamp,reason='过期或无效帧'))
             return
-        self.head_history.feed(frame)
         if self.probe is not None:
             changed=self.probe.feed(frame)
             if changed and not self.probe.done:
@@ -507,7 +573,9 @@ class CameraApp(ctk.CTk):
                     self.message.set(self.session.error)
             if self.session.phase in ('train','select','verify'):
                 name={'train':'五点校准','select':'候选选型（三点，不计最终通过）','verify':'最终独立验收（全新三点）'}[self.session.phase]
-                count=5 if self.session.phase=='train' else 3
+                count=self.session.point_count
+                if self.experimental and self.session.phase=='train':
+                    name='五点训练＋中心复测（复测不拟合）'
                 self.message.set(self.session.error or f'{name} {self.session.index+1}/{count}：有效片段{len(self.session.buffer)}帧；'+
                                  ('正在自动采样' if self.session.started is not None else '已暂停，需明确继续'))
         if self.active and self.mapping:
@@ -517,14 +585,27 @@ class CameraApp(ctk.CTk):
                 return
             if self.mapping_features is None:
                 self.mapping_features=MappingFeatureFilter(self.mapping)
-            raw=self.mapping.predict(self.mapping_features.update(frame),self.settings)
+            prepared=self.mapping_features.update(frame)
+            if prepared is None:
+                self.position=None
+                self.dwell_since=None
+                return
+            raw=self.mapping.predict(prepared,self.settings)
             if any(not math.isfinite(v) or not -.5<=v<=1.5 for v in raw):
                 self.pause()
                 self.message.set('映射超出可靠范围，已暂停，请重新校准')
                 return
             self.position=self.filter.update(Observation(frame.timestamp,*[min(1,max(0,v)) for v in raw]))
+            if self.position is None:
+                self.dwell_since=None
+                return
             target=self.practice_targets[min(self.trial_hits,2)]
             inside=all(abs(a-b)<.10 for a,b in zip(self.position,target))
+            if self.experimental:
+                unfiltered=self.mapping.predict(frame.features,self.settings)
+                inside=inside and all(abs(a-b)<.10 for a,b in zip(unfiltered,target))
+                if self.stable_trial:
+                    inside=inside and self.filter.stable
             if self.trial_hits<3 and inside:
                 if self.dwell_since is None:
                     self.dwell_since=frame.timestamp
@@ -579,7 +660,9 @@ class CameraApp(ctk.CTk):
         if lost:
             if self.probe is not None and not self.probe.done:
                 self.probe.pause('跟踪中断，请明确继续 / 重采当前点')
-            self.head_history.clear()
+            if not (item and item[0]=='frame' and item[1].head_valid
+                    and item[1].head_usable() and 0 <= time.monotonic()-item[1].timestamp <= .25):
+                self.head_history.clear()
             self.active=False
             self.position=None
             self.dwell_since=None
@@ -608,7 +691,8 @@ class CameraApp(ctk.CTk):
             if self.mapping_features:
                 self.mapping_features.reset()
             if self.service.running:
-                self.health.set('摄像头采集中，但当前帧无效或过期 / 试用暂停 / 系统控制锁定')
+                detail=self.latest.reason if 0 <= time.monotonic()-self.latest.timestamp <= .25 else '结果已过期'
+                self.health.set('摄像头采集中 / '+detail+' / 试用暂停 / 系统控制锁定')
             if self.session and self.session.started is not None:
                 self.session.buffer=[]
         if self.bound_environment and self.latest and self.environment()!=self.bound_environment:

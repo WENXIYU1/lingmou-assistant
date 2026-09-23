@@ -25,6 +25,15 @@ class FeatureFrame:
     average_lid: tuple = ()
     eye_widths_px: tuple = ()  # left, right; measured only when both eyes are usable
     preview_ppm: bytes = b''  # opt-in transient crop; never stored in profiles
+    head_valid: bool = False  # posture can survive a downstream gaze-model rejection
+    face_crop: tuple = ()  # MobileGaze input bbox: normalized center X/Y, width/height
+    shadow_features: tuple = ()  # experimental same-frame comparator; never controls actions
+
+    def head_usable(self):
+        return ((self.valid is True or self.head_valid is True) and len(self.head) == 5
+                and all(type(v) in (int, float) and math.isfinite(v)
+                        for v in (self.timestamp, *self.head))
+                and self.timestamp >= 0 and self.head[2] > 0)
 
     def usable(self):
         values = (self.timestamp, *self.features, *self.head)

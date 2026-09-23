@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "runtime": "openvino==2026.4.0",
+  "license": "Apache-2.0",
+  "license_url": "https://raw.githubusercontent.com/openvinotoolkit/open_model_zoo/master/LICENSE",
+  "files": [
+    {
+      "model": "gaze-estimation-adas-0002",
+      "path": "models/weights/openvino/gaze-estimation-adas-0002.xml",
+      "url": "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/gaze-estimation-adas-0002/FP16/gaze-estimation-adas-0002.xml",
+      "size": 99255,
+      "sha384": "840d76c3bc0693f5d10966dfa7cac193519227bfe4762d12d124f24395e3490bf54ec409a09c1e4f962e53900d8b6a14"
+    },
+    {
+      "model": "gaze-estimation-adas-0002",
+      "path": "models/weights/openvino/gaze-estimation-adas-0002.bin",
+      "url": "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/gaze-estimation-adas-0002/FP16/gaze-estimation-adas-0002.bin",
+      "size": 3764742,
+      "sha384": "6b54573b16ef8a3ca0acf53b26a35215eba250024677081b37fa531a79b69d2dceb4d25dfd863439383e002f2162c81f"
+    },
+    {
+      "model": "head-pose-estimation-adas-0001",
+      "path": "models/weights/openvino/head-pose-estimation-adas-0001.xml",
+      "url": "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/head-pose-estimation-adas-0001/FP16/head-pose-estimation-adas-0001.xml",
+      "size": 78824,
+      "sha384": "b92f6721a43f87fc5b7edda1d062cd05c97452c8990aa9517da5c959d9cdf4a75a05d3897d6b2bf5bab3dc530ac57947"
+    },
+    {
+      "model": "head-pose-estimation-adas-0001",
+      "path": "models/weights/openvino/head-pose-estimation-adas-0001.bin",
+      "url": "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/head-pose-estimation-adas-0001/FP16/head-pose-estimation-adas-0001.bin",
+      "size": 3823816,
+      "sha384": "ff57525f97d3d837baf03344802a195b504148f8fc818844c15a89a9f742e770d411113685ec3f648417299bf443dde2"
+    }
+  ]
+}

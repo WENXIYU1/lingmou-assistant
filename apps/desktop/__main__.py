@@ -8,6 +8,8 @@ def main():
     parser = argparse.ArgumentParser(description='灵动视眸：本地安全练习')
     parser.add_argument('--check', action='store_true', help='无UI依赖/资源检查，不打开设备')
     parser.add_argument('--camera', action='store_true', help='打开摄像头适配界面；仍需点击确认才能采集')
+    parser.add_argument('--gaze-experiment', action='store_true', help='本地OpenVINO新视线算法实验画布')
+    parser.add_argument('--mobilegaze-probe', action='store_true', help='MobileGaze整脸方向短测，不开放控制')
     args = parser.parse_args()
     if args.check:
         print(json.dumps({
@@ -22,13 +24,18 @@ def main():
         }, ensure_ascii=False, indent=2))
         return
     try:
-        if args.camera:
+        if args.camera or args.gaze_experiment or args.mobilegaze_probe:
             from .camera_ui import CameraApp as Application
         else:
             from .ui import PracticeApp as Application
     except ModuleNotFoundError as exc:
         raise SystemExit(f'界面依赖缺失：{exc.name}。请安装 requirements-ui.txt。') from exc
-    Application().mainloop()
+    if args.mobilegaze_probe:
+        Application(mobilegaze=True).mainloop()
+    elif args.gaze_experiment:
+        Application(experimental=True).mainloop()
+    else:
+        Application().mainloop()
 
 
 if __name__ == '__main__':

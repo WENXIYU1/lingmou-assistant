@@ -1,0 +1,3 @@
+# Install after requirements-vision.txt with --no-deps (runtime only).
+# The CLI telemetry tools are intentionally not installed or invoked.
+openvino==2026.4.0

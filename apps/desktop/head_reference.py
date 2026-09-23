@@ -12,7 +12,7 @@ class HeadReference:
         self.frames.clear()
 
     def feed(self, frame):
-        if not frame.usable():
+        if not frame.head_usable():
             self.clear()
             return
         if self.frames and not 0 < frame.timestamp-self.frames[-1].timestamp <= .25:

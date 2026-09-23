@@ -7,6 +7,17 @@ from test_calibration import feature, groups, HEAD
 
 
 class HeadReferenceTests(unittest.TestCase):
+    def test_gaze_rejection_preserves_explicitly_valid_posture_only(self):
+        history=HeadReference()
+        for i in range(30):
+            frame=replace(feature((.5,.5),i*.06), valid=False, features=(), head_valid=True)
+            self.assertFalse(frame.usable())
+            history.feed(frame)
+        self.assertEqual(history.candidate(1.74),HEAD)
+        self.assertIsNone(history.candidate(3.))
+        history.feed(replace(frame,timestamp=1.8,head_valid=False))
+        self.assertIsNone(history.candidate(1.8))
+
     def stable(self):
         history=HeadReference()
         for i in range(30):

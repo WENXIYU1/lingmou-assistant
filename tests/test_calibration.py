@@ -26,6 +26,24 @@ def groups(targets):
 
 
 class MappingTests(unittest.TestCase):
+    def test_reports_isolated_and_sustained_exceedances_without_weakening_gate(self):
+        mapping=fit_mapping(groups(TRAIN_TARGETS))
+        for count in (1,5):
+            data=groups(CHECK_TARGETS)
+            for i in range(count):
+                data[0][i]=feature((.9,.5),i*.06)
+            details=[]
+            metrics=validate_mapping(mapping,data,Settings(),(800,600),details)
+            self.assertFalse(metrics['passed'])
+            self.assertEqual(details[0]['over_limit_count'],count)
+            self.assertEqual(details[0]['longest_over_limit_frames'],count)
+            self.assertAlmostEqual(details[0]['longest_over_limit_span'],(count-1)*.06)
+            self.assertEqual(len(details[0]['timeline']),25)
+            session=CalibrationSession(Settings(),(800,600),experimental=True)
+            session.metrics,session.diagnostics=metrics,details
+            self.assertIn('【最终独立验收】',session.diagnostic_report())
+            self.assertIn('误差序列',session.diagnostic_report())
+
     def test_diagnostics_bias_without_jitter_and_unchanged_schema(self):
         mapping=fit_mapping(groups(TRAIN_TARGETS))
         shifted=groups([(x+.3,y-.2) for x,y in CHECK_TARGETS])
