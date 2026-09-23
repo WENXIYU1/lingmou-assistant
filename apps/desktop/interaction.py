@@ -1,12 +1,15 @@
 """Deterministic safety/motion/gesture core; normalized practice coordinates."""
 import math
+from collections import deque
+from statistics import median
 from .config import Settings
 from .vision import Observation
 
 
 class MotionFilter:
-    def __init__(self, settings):
+    def __init__(self, settings, absolute=False):
         self.settings = settings
+        self.absolute = absolute
         self.reset()
 
     def reset(self):
@@ -16,8 +19,10 @@ class MotionFilter:
 
     def update(self, observation):
         if self.origin is None:
-            self.origin = (observation.x, observation.y)
+            self.origin = (.5, .5) if self.absolute else (observation.x, observation.y)
             self.last_time = observation.timestamp
+            if self.absolute:
+                self.position = (observation.x, observation.y)
             return self.position
         dt = observation.timestamp - self.last_time
         self.last_time = observation.timestamp
@@ -34,6 +39,31 @@ class MotionFilter:
                           else previous + alpha * (target - previous))
         self.position = tuple(output)
         return self.position
+
+
+class StableMotionFilter(MotionFilter):
+    """Trial-only causal median then EMA. Does not alter calibration metrics."""
+    def reset(self):
+        super().reset()
+        self.history = deque(maxlen=32)
+        self.stable = False
+
+    def update(self, observation):
+        if not observation.usable():
+            self.reset()
+            return None
+        if self.history and not 0 < observation.timestamp-self.history[-1].timestamp <= self.settings.max_frame_gap:
+            self.reset()
+        self.history.append(observation)
+        while self.history and observation.timestamp-self.history[0].timestamp > .20:
+            self.history.popleft()
+        if len(self.history) < 3:
+            self.stable = False
+            return None
+        coordinates = [[getattr(s, axis) for s in self.history] for axis in ('x','y')]
+        self.stable = all(max(values)-min(values) <= .08 for values in coordinates)
+        filtered = Observation(observation.timestamp, *(median(values) for values in coordinates))
+        return super().update(filtered)
 
 
 class HoldGesture:

@@ -1,0 +1,12 @@
+{
+  "model": "MobileGaze ResNet18 Gaze360",
+  "path": "models/weights/resnet18_gaze.onnx",
+  "url": "https://github.com/yakhyo/gaze-estimation/releases/download/weights/resnet18_gaze.onnx",
+  "size": 45066134,
+  "sha256": "404fec1efd07ff49f981e47f461c20c2627119e465ec441bbd1c067d3f16e657",
+  "digest_source": "https://api.github.com/repos/yakhyo/gaze-estimation/releases/tags/weights",
+  "code_license": "MIT",
+  "weight_redistribution": "not cleared; local experimental evaluation only",
+  "runtime": "OpenVINO 2026.4.0 CPU",
+  "preprocess": "RGB 448x448 ImageNet normalization; MediaPipe bbox differs from upstream RetinaFace"
+}

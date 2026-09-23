@@ -20,3 +20,7 @@ source_review/
 materials_extracted.json
 extract_competition_materials.py
 灵动视眸改进方案.md
+models/weights/
+*.download
+profile-*.json
+profile-*.json.bak
